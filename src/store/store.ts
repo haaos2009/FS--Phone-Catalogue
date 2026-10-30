@@ -71,11 +71,12 @@ export const useAppState = create<StoreState>()((set, get) => ({
   ratings: {},
   user: null,
   actions: {
-    loadPhones: phonesToAdd => set({ phones: phonesToAdd }),
-    loadTablets: tabletsToAdd => set({ tablets: tabletsToAdd }),
-    loadAccessories: accessoriesToAdd => set({ accessories: accessoriesToAdd }),
-    setProductItem: productItem => set({ selectedProduct: productItem }),
-    addItemToCart: productToAdd => {
+    loadPhones: (phonesToAdd) => set({ phones: phonesToAdd }),
+    loadTablets: (tabletsToAdd) => set({ tablets: tabletsToAdd }),
+    loadAccessories: (accessoriesToAdd) =>
+      set({ accessories: accessoriesToAdd }),
+    setProductItem: (productItem) => set({ selectedProduct: productItem }),
+    addItemToCart: (productToAdd) => {
       const newCart = new Map(get().cart);
       const productId = productToAdd.id;
       const itemValue = newCart.get(productId);
@@ -94,9 +95,8 @@ export const useAppState = create<StoreState>()((set, get) => ({
 
       set({ cart: newCart });
     },
-    removeItemFromCart: productId => {
+    removeItemFromCart: (productId) => {
       const currentCart = new Map(get().cart);
-
       currentCart.delete(productId);
 
       set({ cart: currentCart });
@@ -104,7 +104,7 @@ export const useAppState = create<StoreState>()((set, get) => ({
     clearCart: () => {
       set({ cart: new Map() });
     },
-    decreaseAmountFromCart: productId => {
+    decreaseAmountFromCart: (productId) => {
       const currentCart = new Map(get().cart);
       const currentProductInCart = currentCart.get(productId);
 
@@ -125,70 +125,50 @@ export const useAppState = create<StoreState>()((set, get) => ({
     },
 
     fetchRatings: async () => {
-      const { data, error } = await supabase
-        .from('reviews')
-        .select('product_id, rating');
+      const { data, error } = await supabase.rpc('get_average_ratings');
 
       if (error) {
-        console.error('Failed to get review:', error);
-
+        console.error('Failed to get average ratings:', error);
         return;
       }
 
       if (data) {
-        const grouping: Record<string, { total: number; count: number }> = {};
-
-        data.forEach(item => {
-          if (!grouping[item.product_id]) {
-            grouping[item.product_id] = { total: 0, count: 0 };
-          }
-
-          grouping[item.product_id].total += item.rating;
-          grouping[item.product_id].count += 1;
-        });
         const averageRatingsMap: Record<string, number> = {};
-
-        Object.keys(grouping).forEach(productId => {
-          const avg = grouping[productId].total / grouping[productId].count;
-
-          averageRatingsMap[productId] = Math.round(avg * 10) / 10;
+        data.forEach((item: { product_id: string; average_rating: number }) => {
+          averageRatingsMap[item.product_id] = Number(item.average_rating);
         });
         set({ ratings: averageRatingsMap });
       }
     },
+
     addProductReview: async (product, newRating) => {
       let deviceId = localStorage.getItem('device_id');
-
       if (!deviceId) {
         deviceId = crypto.randomUUID();
         localStorage.setItem('device_id', deviceId);
       }
 
-      const { error } = await supabase.from('reviews').insert([
-        {
-          device_id: deviceId,
-          category: product.category,
-          product_id: product.id,
-          rating: newRating,
-        },
-      ]);
+      const { error } = await supabase.rpc('add_or_update_review', {
+        p_device_id: deviceId,
+        p_category: product.category,
+        p_product_id: product.id,
+        p_rating: newRating,
+      });
 
       if (error) {
-        console.error('Error saving to Supabase', error);
-
-        return;
+        console.error('Error saving review to Supabase', error);
+        throw error;
       }
 
       get().actions.fetchRatings();
     },
-    setUser: user => set({ user }),
-    setFavorites: favoritesArray => {
+    setUser: (user) => set({ user }),
+    setFavorites: (favoritesArray) => {
       const favoritesMap = new Map();
-
-      favoritesArray.forEach(fav => favoritesMap.set(fav.id, fav));
+      favoritesArray.forEach((fav) => favoritesMap.set(fav.id, fav));
       set({ favourites: favoritesMap });
     },
-    toggleFavorite: async product => {
+    toggleFavorite: async (product) => {
       const { user, favourites } = get();
 
       const isFavorite = favourites.has(product.id);
@@ -215,19 +195,18 @@ export const useAppState = create<StoreState>()((set, get) => ({
         console.error('Failed to update favorites:', error);
       }
     },
-    syncFavorites: async userId => {
+    syncFavorites: async (userId) => {
       try {
         const localFavorites = Array.from(get().favourites.values());
 
         await Promise.all(
-          localFavorites.map(product => saveFavorite(userId, product)),
+          localFavorites.map((product) => saveFavorite(userId, product)),
         );
 
         const remoteFavorites = await fetchFavoriteProducts(userId);
 
         const newFavoritesMap = new Map();
-
-        remoteFavorites.forEach(fav => newFavoritesMap.set(fav.id, fav));
+        remoteFavorites.forEach((fav) => newFavoritesMap.set(fav.id, fav));
 
         set({ favourites: newFavoritesMap });
       } catch (error) {
@@ -235,8 +214,8 @@ export const useAppState = create<StoreState>()((set, get) => ({
       }
     },
   },
-  startCartAnimation: animation => set({ cartAnimation: animation }),
+  startCartAnimation: (animation) => set({ cartAnimation: animation }),
   finishCartAnimation: () => set({ cartAnimation: null }),
 }));
 
-export const useAppActions = () => useAppState(state => state.actions);
+export const useAppActions = () => useAppState((state) => state.actions);
